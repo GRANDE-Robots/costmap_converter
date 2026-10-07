@@ -1,8 +1,8 @@
 #include <costmap_converter/costmap_to_dynamic_obstacles/costmap_to_dynamic_obstacles.h>
 
 #include <pluginlib/class_list_macros.hpp>
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2/LinearMath/Vector3.h>
+#include <tf2/LinearMath/Quaternion.hpp>
+#include <tf2/LinearMath/Vector3.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 PLUGINLIB_EXPORT_CLASS(costmap_converter::CostmapToDynamicObstacles, costmap_converter::BaseCostmapToPolygons)
@@ -27,6 +27,7 @@ void CostmapToDynamicObstacles::initialize(rclcpp::Node::SharedPtr nh)
 {
   BaseCostmapToPolygons::initialize(nh);
 
+  global_frame_ = declare_plugin_parameter(nh, "global_frame", global_frame_);
   costmap_ = nullptr;
 
   // We need the odometry from the robot to compensate the ego motion
@@ -36,32 +37,32 @@ void CostmapToDynamicObstacles::initialize(rclcpp::Node::SharedPtr nh)
               rclcpp::SystemDefaultsQoS(),
               std::bind(&CostmapToDynamicObstacles::odomCallback, this, std::placeholders::_1));
 
-  nh->get_parameter_or<bool>("publish_static_obstacles", publish_static_obstacles_, publish_static_obstacles_);
+  publish_static_obstacles_ = declare_plugin_parameter(nh, "publish_static_obstacles", publish_static_obstacles_);
 
   //////////////////////////////////
   // Foreground detection parameters
   BackgroundSubtractor::Params bg_sub_params;
 
   bg_sub_params.alpha_slow = 0.3;
-  nh->get_parameter_or<double>("alpha_slow", bg_sub_params.alpha_slow, bg_sub_params.alpha_slow);
+  bg_sub_params.alpha_slow = declare_plugin_parameter(nh, "alpha_slow", bg_sub_params.alpha_slow);
 
   bg_sub_params.alpha_fast = 0.85;
-  nh->get_parameter_or<double>("alpha_fast", bg_sub_params.alpha_fast, bg_sub_params.alpha_fast);
+  bg_sub_params.alpha_fast = declare_plugin_parameter(nh, "alpha_fast", bg_sub_params.alpha_fast);
 
   bg_sub_params.beta = 0.85;
-  nh->get_parameter_or<double>("beta", bg_sub_params.beta, bg_sub_params.beta);
+  bg_sub_params.beta = declare_plugin_parameter(nh, "beta", bg_sub_params.beta);
 
   bg_sub_params.min_occupancy_probability = 180;
-  nh->get_parameter_or<double>("min_occupancy_probability", bg_sub_params.min_occupancy_probability, bg_sub_params.min_occupancy_probability);
+  bg_sub_params.min_occupancy_probability = declare_plugin_parameter(nh, "min_occupancy_probability", bg_sub_params.min_occupancy_probability);
 
   bg_sub_params.min_sep_between_fast_and_slow_filter = 80;
-  nh->get_parameter_or<double>("min_sep_between_slow_and_fast_filter", bg_sub_params.min_sep_between_fast_and_slow_filter, bg_sub_params.min_sep_between_fast_and_slow_filter);
+  bg_sub_params.min_sep_between_fast_and_slow_filter = declare_plugin_parameter(nh, "min_sep_between_slow_and_fast_filter", bg_sub_params.min_sep_between_fast_and_slow_filter);
 
   bg_sub_params.max_occupancy_neighbors = 100;
-  nh->get_parameter_or<double>("max_occupancy_neighbors", bg_sub_params.max_occupancy_neighbors, bg_sub_params.max_occupancy_neighbors);
+  bg_sub_params.max_occupancy_neighbors = declare_plugin_parameter(nh, "max_occupancy_neighbors", bg_sub_params.max_occupancy_neighbors);
 
   bg_sub_params.morph_size = 1;
-  nh->get_parameter_or<int>("morph_size", bg_sub_params.morph_size, bg_sub_params.morph_size);
+  bg_sub_params.morph_size = declare_plugin_parameter(nh, "morph_size", bg_sub_params.morph_size);
 
   bg_sub_ = std::unique_ptr<BackgroundSubtractor>(new BackgroundSubtractor(bg_sub_params));
 
@@ -77,43 +78,43 @@ void CostmapToDynamicObstacles::initialize(rclcpp::Node::SharedPtr nh)
   blob_det_params.minRepeatability = 1;
 
   blob_det_params.minDistBetweenBlobs = 10;
-  nh->get_parameter_or<float>("min_distance_between_blobs", blob_det_params.minDistBetweenBlobs, blob_det_params.minDistBetweenBlobs);
+  blob_det_params.minDistBetweenBlobs = declare_plugin_parameter(nh, "min_distance_between_blobs", blob_det_params.minDistBetweenBlobs);
 
   blob_det_params.filterByArea = true;
-  nh->get_parameter_or<bool>("filter_by_area", blob_det_params.filterByArea, blob_det_params.filterByArea);
+  blob_det_params.filterByArea = declare_plugin_parameter(nh, "filter_by_area", blob_det_params.filterByArea);
 
   blob_det_params.minArea = 3; // Filter out blobs with less pixels
-  nh->get_parameter_or<float>("min_area", blob_det_params.minArea, blob_det_params.minArea);
+  blob_det_params.minArea = declare_plugin_parameter(nh, "min_area", blob_det_params.minArea);
 
   blob_det_params.maxArea = 300;
-  nh->get_parameter_or<float>("max_area", blob_det_params.maxArea, blob_det_params.maxArea);
+  blob_det_params.maxArea = declare_plugin_parameter(nh, "max_area", blob_det_params.maxArea);
 
   blob_det_params.filterByCircularity = true; // circularity = 4*pi*area/perimeter^2
-  nh->get_parameter_or<bool>("filter_by_circularity", blob_det_params.filterByCircularity, blob_det_params.filterByCircularity);
+  blob_det_params.filterByCircularity = declare_plugin_parameter(nh, "filter_by_circularity", blob_det_params.filterByCircularity);
 
   blob_det_params.minCircularity = 0.2;
-  nh->get_parameter_or<float>("min_circularity", blob_det_params.minCircularity, blob_det_params.minCircularity);
+  blob_det_params.minCircularity = declare_plugin_parameter(nh, "min_circularity", blob_det_params.minCircularity);
 
   blob_det_params.maxCircularity = 1; // maximal 1 (in case of a circle)
-  nh->get_parameter_or<float>("max_circularity", blob_det_params.maxCircularity, blob_det_params.maxCircularity);
+  blob_det_params.maxCircularity = declare_plugin_parameter(nh, "max_circularity", blob_det_params.maxCircularity);
 
   blob_det_params.filterByInertia = true; // Filter blobs based on their elongation
-  nh->get_parameter_or<bool>("filter_by_intertia", blob_det_params.filterByInertia, blob_det_params.filterByInertia);
+  blob_det_params.filterByInertia = declare_plugin_parameter(nh, "filter_by_inertia", blob_det_params.filterByInertia);
 
   blob_det_params.minInertiaRatio = 0.2;  // minimal 0 (in case of a line)
-  nh->get_parameter_or<float>("min_inertia_ratio", blob_det_params.minInertiaRatio, blob_det_params.minInertiaRatio);
+  blob_det_params.minInertiaRatio = declare_plugin_parameter(nh, "min_inertia_ratio", blob_det_params.minInertiaRatio);
 
   blob_det_params.maxInertiaRatio = 1;    // maximal 1 (in case of a circle)
-  nh->get_parameter_or<float>("max_intertia_ratio", blob_det_params.maxInertiaRatio, blob_det_params.maxInertiaRatio);
+  blob_det_params.maxInertiaRatio = declare_plugin_parameter(nh, "max_inertia_ratio", blob_det_params.maxInertiaRatio);
 
   blob_det_params.filterByConvexity = false; // Area of the Blob / Area of its convex hull
-  nh->get_parameter_or<bool>("filter_by_convexity", blob_det_params.filterByConvexity, blob_det_params.filterByConvexity);
+  blob_det_params.filterByConvexity = declare_plugin_parameter(nh, "filter_by_convexity", blob_det_params.filterByConvexity);
 
   blob_det_params.minConvexity = 0;          // minimal 0
-  nh->get_parameter_or<float>("min_convexity", blob_det_params.minConvexity, blob_det_params.minConvexity);
+  blob_det_params.minConvexity = declare_plugin_parameter(nh, "min_convexity", blob_det_params.minConvexity);
 
   blob_det_params.maxConvexity = 1;          // maximal 1
-  nh->get_parameter_or<float>("max_convexity", blob_det_params.maxConvexity, blob_det_params.maxConvexity);
+  blob_det_params.maxConvexity = declare_plugin_parameter(nh, "max_convexity", blob_det_params.maxConvexity);
 
   blob_det_ = BlobDetector::create(blob_det_params);
 
@@ -121,16 +122,16 @@ void CostmapToDynamicObstacles::initialize(rclcpp::Node::SharedPtr nh)
   // Tracking parameters
   CTracker::Params tracker_params;
   tracker_params.dt = 0.2;
-  nh->get_parameter_or<float>("dt", tracker_params.dt, tracker_params.dt);
+  tracker_params.dt = declare_plugin_parameter(nh, "dt", tracker_params.dt);
 
   tracker_params.dist_thresh = 60.0;
-  nh->get_parameter_or<float>("dist_thresh", tracker_params.dist_thresh, tracker_params.dist_thresh);
+  tracker_params.dist_thresh = declare_plugin_parameter(nh, "dist_thresh", tracker_params.dist_thresh);
 
   tracker_params.max_allowed_skipped_frames = 3;
-  nh->get_parameter_or<int>("max_allowed_skipped_frames", tracker_params.max_allowed_skipped_frames, tracker_params.max_allowed_skipped_frames);
+  tracker_params.max_allowed_skipped_frames = declare_plugin_parameter(nh, "max_allowed_skipped_frames", tracker_params.max_allowed_skipped_frames);
 
   tracker_params.max_trace_length = 10;
-  nh->get_parameter_or<int>("max_trace_length", tracker_params.max_trace_length, tracker_params.max_trace_length);
+  tracker_params.max_trace_length = declare_plugin_parameter(nh, "max_trace_length", tracker_params.max_trace_length);
 
   tracker_ = std::unique_ptr<CTracker>(new CTracker(tracker_params));
 
@@ -138,7 +139,7 @@ void CostmapToDynamicObstacles::initialize(rclcpp::Node::SharedPtr nh)
   ////////////////////////////////////
   // Static costmap conversion parameters
   std::string static_converter_plugin = "costmap_converter::CostmapToPolygonsDBSMCCH";
-  nh->get_parameter_or<std::string>("static_converter_plugin", static_converter_plugin, static_converter_plugin);
+  static_converter_plugin = declare_plugin_parameter(nh, "static_converter_plugin", static_converter_plugin);
   loadStaticCostmapConverterPlugin(static_converter_plugin, nh);
 
 
@@ -165,6 +166,11 @@ void CostmapToDynamicObstacles::compute()
   // if no foreground object is detected, no ObstacleMsgs need to be published
   if (fg_mask_.empty())
     return;
+
+  if (global_frame_.empty()) {
+    RCLCPP_ERROR(getLogger(), "CostmapToDynamicObstacles requires the costmap global frame");
+    return;
+  }
 
   cv::Mat bg_mat;
   if (publish_static_obstacles_)
@@ -213,7 +219,7 @@ void CostmapToDynamicObstacles::compute()
   ObstacleArrayPtr obstacles(new costmap_converter_msgs::msg::ObstacleArrayMsg);
   // header.seq is automatically filled
   obstacles->header.stamp = now();
-  obstacles->header.frame_id = "/map"; //Global frame /map
+  obstacles->header.frame_id = global_frame_;
 
   // For all tracked objects
   for (unsigned int i = 0; i < (unsigned int)tracker_->tracks.size(); ++i)
@@ -382,7 +388,7 @@ Point_t CostmapToDynamicObstacles::getEstimatedVelocityOfObject(unsigned int idx
   Point_t vel = tracker_->tracks.at(idx)->getEstimatedVelocity() * costmap_->getResolution() + ego_vel_;
 
   //ROS_INFO("vel x: %f, vel y: %f, vel z: %f", vel.x, vel.y, vel.z);
-  // velocity in /map frame
+  // Velocity is transformed into the costmap's global frame.
   return vel;
 }
 
@@ -471,7 +477,7 @@ void CostmapToDynamicObstacles::getContour(unsigned int idx, std::vector<Point_t
   for (std::size_t i = 0; i < contour2i.size(); ++i)
   {
     contour.push_back((Point_t(contour2i.at(i).x, contour2i.at(i).y, 0.0)*costmap_->getResolution())
-                        + costmap_origin); // Shift to /map
+                        + costmap_origin); // Shift into the costmap's global frame.
   }
 
 }

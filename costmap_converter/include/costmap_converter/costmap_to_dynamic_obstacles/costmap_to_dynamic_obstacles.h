@@ -50,7 +50,6 @@
 #include <rclcpp/rclcpp.hpp>
 
 // OpenCV
-#include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/features2d/features2d.hpp>
 #include <opencv2/video/tracking.hpp>
 
@@ -105,6 +104,11 @@ public:
    * @param costmap Pointer to the costmap2d source
    */
   virtual void setCostmap2D(nav2_costmap_2d::Costmap2D* costmap);
+
+  virtual void setGlobalFrame(const std::string& global_frame)
+  {
+    global_frame_ = global_frame;
+  }
 
   /**
    * @brief Get updated data from the previously set Costmap2D
@@ -182,6 +186,7 @@ private:
   Point_t ego_vel_;
 
   std::string odom_topic_ = "/odom";
+  std::string global_frame_;
   bool publish_static_obstacles_ = true;
 
 //  dynamic_reconfigure::Server<CostmapToDynamicObstaclesConfig>*

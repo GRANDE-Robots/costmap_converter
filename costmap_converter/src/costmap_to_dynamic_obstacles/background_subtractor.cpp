@@ -1,4 +1,5 @@
-#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 //#include <opencv2/cvv/cvv.hpp>
 #include <costmap_converter/costmap_to_dynamic_obstacles/background_subtractor.h>
 

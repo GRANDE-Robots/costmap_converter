@@ -1,30 +1,37 @@
-costmap_converter ROS Package
-=============================
+# Costmap converter
 
-A ros package that includes plugins and nodes to convert occupied costmap2d cells to primitive types
+`costmap_converter` is a ROS 2 plugin library for converting Nav2 costmaps into
+polygonal obstacles. TEB loads the plugins directly through `pluginlib`; this
+package does not provide a separate converter node.
 
-Build status of the *master* branch:
-- ROS Buildfarm Kinetic: [![Kinetic Build Status](http://build.ros.org/buildStatus/icon?job=Kdev__costmap_converter__ubuntu_xenial_amd64)](http://build.ros.org/job/Kdev__costmap_converter__ubuntu_xenial_amd64/)
-- ROS Buildfarm Indigo: [![Indigo Build Status](http://build.ros.org/buildStatus/icon?job=Idev__costmap_converter__ubuntu_trusty_amd64)](http://build.ros.org/job/Idev__costmap_converter__ubuntu_trusty_amd64/)
+The package targets Ubuntu 24.04 and ROS 2 Jazzy. Build it in the GRANDE
+workspace with `colcon build --packages-up-to costmap_converter`.
 
+## TEB configuration
 
-### Contributors
+Select a plugin and place its parameter overrides under the TEB controller
+plugin's `costmap_converter` key. The TEB controller forwards this block to
+the converter's private ROS 2 node. For example:
 
-- Christoph Rösmann
-- Franz Albers (*CostmapToDynamicObstacles* plugin)
-- Otniel Rinaldo
+```yaml
+controller_server:
+  ros__parameters:
+    FollowPath:
+      costmap_converter_plugin: "costmap_converter::CostmapToPolygonsDBSMCCH"
+      costmap_converter_spin_thread: true
+      costmap_converter:
+        cluster_max_distance: 0.4
+        cluster_min_pts: 2
+        cluster_max_pts: 30
+        convex_hull_min_pt_separation: 0.1
+```
 
+The worker currently requires `costmap_converter_spin_thread: true`; TEB
+rejects `false` during configuration because the private node has no external
+executor. The dynamic-obstacle plugin receives the actual Nav2 costmap global
+frame and uses the controller's ROS clock for its output timestamps.
 
-### License
-
-The *costmap_converter* package is licensed under the BSD license.
-It depends on other ROS packages, which are listed in the package.xml. They are also BSD licensed.
-
-Some third-party dependencies are included that are licensed under different terms:
- - *MultitargetTracker*, GNU GPLv3, https://github.com/Smorodov/Multitarget-tracker
-   (partially required for the *CostmapToDynamicObstacles* plugin)
-
-All packages included are distributed in the hope that they will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the licenses for more details.
-
-
-
+Available plugins are listed in
+[`costmap_converter/costmap_converter_plugins.xml`](costmap_converter/costmap_converter_plugins.xml).
+The package retains the upstream BSD license and contributor attribution. The
+multitarget tracker retains its separate GPLv3 license notices.

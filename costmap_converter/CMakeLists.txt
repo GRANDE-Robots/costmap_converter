@@ -5,7 +5,7 @@ project(costmap_converter)
 set(CMAKE_BUILD_TYPE Release) #None, Debug, Release, RelWithDebInfo, MinSizeRel
 
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -13,30 +13,30 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
-find_package(class_loader REQUIRED)
 find_package(costmap_converter_msgs REQUIRED)
-find_package(cv_bridge REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
-find_package(tf2_ros REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
 
 set(dependencies
-    class_loader
     costmap_converter_msgs
-    cv_bridge
     geometry_msgs
+    nav_msgs
+    visualization_msgs
     nav2_costmap_2d
     tf2
     tf2_geometry_msgs
-    tf2_ros
     OpenCV
     pluginlib
     rclcpp
+    rclcpp_lifecycle
 )
 
 include_directories(
@@ -55,26 +55,35 @@ add_library(costmap_converter SHARED
   src/costmap_to_dynamic_obstacles/multitarget_tracker/Kalman.cpp
   src/costmap_to_dynamic_obstacles/multitarget_tracker/HungarianAlg.cpp
 )
-
-ament_target_dependencies(costmap_converter 
-    ${dependencies}
+target_include_directories(costmap_converter PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
 )
 
-add_executable(standalone_converter src/costmap_converter_node.cpp)
-
-target_link_libraries(standalone_converter
-    costmap_converter
-)
-ament_target_dependencies(standalone_converter
-  ${dependencies}
-)
+if(COMMAND ament_target_dependencies)
+  ament_target_dependencies(costmap_converter 
+      ${dependencies}
+  )
+else()
+  foreach(dependency IN ITEMS ${dependencies})
+    if(dependency STREQUAL "Boost")
+      target_link_libraries(costmap_converter  Boost::headers)
+    elseif(dependency STREQUAL "OpenCV")
+      target_include_directories(costmap_converter PUBLIC ${OpenCV_INCLUDE_DIRS})
+      target_link_libraries(costmap_converter  ${OpenCV_LIBRARIES})
+    elseif(NOT DEFINED ${dependency}_TARGETS OR "${${dependency}_TARGETS}" STREQUAL "")
+      message(FATAL_ERROR "${dependency} has no exported targets for costmap_converter")
+    else()
+      target_link_libraries(costmap_converter  ${${dependency}_TARGETS})
+    endif()
+  endforeach()
+endif()
 
 install(TARGETS costmap_converter
+   EXPORT costmap_converter_targets
    DESTINATION lib
 )
-install(TARGETS standalone_converter
-   DESTINATION bin
-)
+ament_export_targets(costmap_converter_targets HAS_LIBRARY_TARGET)
 
 install(DIRECTORY include/
    DESTINATION include/
@@ -91,7 +100,22 @@ if(BUILD_TESTING)
   if(TARGET test_costmap_polygons)
     target_link_libraries(test_costmap_polygons costmap_converter)  
   endif()
+  if(COMMAND ament_target_dependencies)
   ament_target_dependencies(test_costmap_polygons ${dependencies})
+else()
+  foreach(dependency IN ITEMS ${dependencies})
+    if(dependency STREQUAL "Boost")
+      target_link_libraries(test_costmap_polygons  Boost::headers)
+    elseif(dependency STREQUAL "OpenCV")
+      target_include_directories(test_costmap_polygons PUBLIC ${OpenCV_INCLUDE_DIRS})
+      target_link_libraries(test_costmap_polygons  ${OpenCV_LIBRARIES})
+    elseif(NOT DEFINED ${dependency}_TARGETS OR "${${dependency}_TARGETS}" STREQUAL "")
+      message(FATAL_ERROR "${dependency} has no exported targets for test_costmap_polygons")
+    else()
+      target_link_libraries(test_costmap_polygons  ${${dependency}_TARGETS})
+    endif()
+  endforeach()
+endif()
 endif()
 
 ament_package()

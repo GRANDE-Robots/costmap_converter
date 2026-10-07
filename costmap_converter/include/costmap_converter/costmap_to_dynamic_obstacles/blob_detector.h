@@ -60,6 +60,10 @@
 class BlobDetector : public cv::SimpleBlobDetector
 {
 public:
+  void setParams(const Params& parameters) { updateParameters(parameters); }
+  Params getParams() const { return params_; }
+  const std::vector<std::vector<cv::Point>>& getBlobContours() const { return contours_; }
+
   //! Default constructor which optionally accepts custom parameters
   BlobDetector(const cv::SimpleBlobDetector::Params& parameters = cv::SimpleBlobDetector::Params());
 

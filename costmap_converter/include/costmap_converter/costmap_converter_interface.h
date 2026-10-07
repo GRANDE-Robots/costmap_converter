@@ -40,10 +40,13 @@
 #define COSTMAP_CONVERTER_INTERFACE_H_
 
 //#include <costmap_2d/costmap_2d_ros.h>
-#include <mutex>
+#include <functional>
 #include <memory>
+#include <string>
+#include <thread>
 
 #include <rclcpp/rclcpp.hpp>
+#include <rclcpp/executors/single_threaded_executor.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
 #include <nav2_costmap_2d/costmap_2d.hpp>
 #include <nav2_costmap_2d/costmap_2d_ros.hpp>
@@ -52,6 +55,27 @@
 
 namespace costmap_converter
 {
+
+template<typename T>
+T declare_plugin_parameter(
+  const rclcpp::Node::SharedPtr& node, const std::string& name,
+  const T& default_value)
+{
+  if (node->has_parameter(name)) {
+    T value{};
+    node->get_parameter(name, value);
+    return value;
+  }
+  return node->declare_parameter<T>(name, default_value);
+}
+
+inline float declare_plugin_parameter(
+  const rclcpp::Node::SharedPtr& node, const std::string& name,
+  float default_value)
+{
+  return static_cast<float>(declare_plugin_parameter<double>(
+    node, name, static_cast<double>(default_value)));
+}
   
 //! Typedef for a shared dynamic obstacle container
 typedef costmap_converter_msgs::msg::ObstacleArrayMsg::SharedPtr ObstacleArrayPtr;
@@ -161,6 +185,14 @@ public:
     virtual void setOdomTopic(const std::string& odom_topic) { (void)odom_topic; }
 
     /**
+     * @brief Set the global frame associated with the supplied costmap.
+     *
+     * Plugins that publish framed output should use this frame rather than
+     * assuming a fixed map frame.
+     */
+    virtual void setGlobalFrame(const std::string& global_frame) { (void)global_frame; }
+
+    /**
      * @brief Determines whether an additional plugin for subsequent costmap conversion is specified
      *
      * @return false, since all plugins for static costmap conversion are independent
@@ -168,45 +200,41 @@ public:
     virtual bool stackedCostmapConversion() {return false;}
 
      /**
-      * @brief Instantiate a worker that repeatedly coverts the most recent costmap to polygons.
-      * The worker is implemented as a timer event that is invoked at a specific \c rate.
-      * The passed \c costmap pointer must be valid at the complete time and must be lockable.
-      * By specifying the argument \c spin_thread the timer event is invoked in a separate
-      * thread and callback queue or otherwise it is called from the global callback queue (of the
-      * node in which the plugin is used).
+     * @brief Instantiate a worker that repeatedly converts the most recent costmap to polygons.
+     * The worker uses the node clock, so simulation time pauses and advances with the rest of the graph.
+     * The passed \c costmap pointer must be valid at the complete time and must be lockable.
+     * By specifying \c spin_thread, a dedicated executor processes the timer in a separate thread.
+     * Otherwise the node's owning executor must process the timer.
       * @param rate The rate that specifies how often the costmap should be updated
       * @param costmap Pointer to the underlying costmap (must be valid and lockable as long as the worker is active
       * @param spin_thread if \c true,the timer is invoked in a separate thread, otherwise in the default callback queue)
      */
     void startWorker(rclcpp::Rate::SharedPtr rate, nav2_costmap_2d::Costmap2D* costmap, bool spin_thread = false)
     {
+      stopWorker();
       setCostmap2D(costmap);
-      
-      if (spin_thread_)
-      {
-        {
-          std::lock_guard<std::mutex> terminate_lock(terminate_mutex_);
-          need_to_terminate_ = true;
-        }
-        spin_thread_->join();
-        delete spin_thread_;
-      }
-      
+
       if (spin_thread)
       {
         RCLCPP_DEBUG(nh_->get_logger(), "costmap_converter %s", "Spinning up a thread for the CostmapToPolygons plugin");
-        need_to_terminate_ = false;
-        
-        worker_timer_ = nh_->create_wall_timer(
-                    rate->period(),
-                    std::bind(&BaseCostmapToPolygons::workerCallback, this));
-        spin_thread_ = new std::thread(std::bind(&BaseCostmapToPolygons::spinThread, this));
+        worker_executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+        try {
+          worker_executor_->add_node(nh_);
+          worker_node_added_ = true;
+          worker_timer_ = rclcpp::create_timer(
+            nh_, nh_->get_clock(), rclcpp::Duration(rate->period()),
+            std::bind(&BaseCostmapToPolygons::workerCallback, this));
+          spin_thread_ = new std::thread(std::bind(&BaseCostmapToPolygons::spinThread, this));
+        } catch (...) {
+          stopWorker();
+          throw;
+        }
       }
       else
       {
-        worker_timer_ = nh_->create_wall_timer(
-                    rate->period(),
-                    std::bind(&BaseCostmapToPolygons::workerCallback, this));
+        worker_timer_ = rclcpp::create_timer(
+          nh_, nh_->get_clock(), rclcpp::Duration(rate->period()),
+          std::bind(&BaseCostmapToPolygons::workerCallback, this));
         spin_thread_ = nullptr;
       }
     }
@@ -217,15 +245,22 @@ public:
     void stopWorker()
     {
       if (worker_timer_) worker_timer_->cancel();
-      if (spin_thread_)
-      {
-        {
-          std::lock_guard<std::mutex> terminate_lock(terminate_mutex_);
-          need_to_terminate_ = true;
-        }
+      if (worker_executor_) {
+        worker_executor_->cancel();
+      }
+      if (spin_thread_) {
         spin_thread_->join();
         delete spin_thread_;
+        spin_thread_ = nullptr;
       }
+      if (worker_executor_) {
+        if (worker_node_added_) {
+          worker_executor_->remove_node(nh_);
+          worker_node_added_ = false;
+        }
+        worker_executor_.reset();
+      }
+      worker_timer_.reset();
     }
 
 protected:
@@ -235,22 +270,14 @@ protected:
      */
     BaseCostmapToPolygons() : //nh_("~costmap_to_polygons"),
         nh_(nullptr),
-        spin_thread_(nullptr), need_to_terminate_(false) {}
+        spin_thread_(nullptr) {}
     
     /**
      * @brief Blocking method that checks for new timer events (active if startWorker() is called with spin_thread enabled) 
      */
     void spinThread()
     {
-      while (rclcpp::ok())
-      {
-        {
-          std::lock_guard<std::mutex> terminate_lock(terminate_mutex_);
-          if (need_to_terminate_)
-            break;
-          rclcpp::spin_some(nh_);
-        }
-      }
+      worker_executor_->spin();
     }
     
     /**
@@ -275,9 +302,9 @@ protected:
 private:
   rclcpp::TimerBase::SharedPtr worker_timer_;
   rclcpp::Node::SharedPtr nh_;
+  std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> worker_executor_;
+  bool worker_node_added_{false};
   std::thread* spin_thread_;
-  std::mutex terminate_mutex_;
-  bool need_to_terminate_;
 };    
 
 
